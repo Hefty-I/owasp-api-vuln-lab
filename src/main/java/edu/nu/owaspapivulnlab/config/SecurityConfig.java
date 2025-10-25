@@ -29,21 +29,19 @@ public class SecurityConfig {
     // VULNERABILITY(API7 Security Misconfiguration): overly permissive CORS/CSRF and antMatchers order
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-        http.csrf(csrf -> csrf.disable()); // APIs typically stateless; but add CSRF for state-changing in real apps
-        http.sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+    http.csrf(csrf -> csrf.disable());
+    http.sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
 
-        http.authorizeHttpRequests(reg -> reg
-                .requestMatchers("/api/auth/**", "/h2-console/**").permitAll()
-                // VULNERABILITY: broad permitAll on GET allows data scraping (API1/2 depending on context)
-                .requestMatchers(HttpMethod.GET, "/api/**").permitAll()
-                .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                .anyRequest().authenticated()
-        );
+    // FIX(API7): Only allow unauthenticated access to /api/auth/** and /h2-console/**
+    http.authorizeHttpRequests(reg -> reg
+        .requestMatchers("/api/auth/**", "/h2-console/**").permitAll()
+        .requestMatchers("/api/admin/**").hasRole("ADMIN")
+        .anyRequest().authenticated()
+    );
 
-        http.headers(h -> h.frameOptions(f -> f.disable())); // allow H2 console
-
-        http.addFilterBefore(new JwtFilter(secret), org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter.class);
-        return http.build();
+    http.headers(h -> h.frameOptions(f -> f.disable()));
+    http.addFilterBefore(new JwtFilter(secret), org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter.class);
+    return http.build();
     }
 
     // Minimal JWT filter (VULNERABILITY: weak validation - no audience, issuer checks; long TTL)
