@@ -5,6 +5,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import edu.nu.owaspapivulnlab.model.AppUser;
 import edu.nu.owaspapivulnlab.repo.AppUserRepository;
+import edu.nu.owaspapivulnlab.web.dto.CreateUserRequest;
 
 import java.util.HashMap;
 import java.util.List;
@@ -25,10 +26,17 @@ public class UserController {
         return users.findById(id).orElseThrow(() -> new RuntimeException("User not found"));
     }
 
-    // VULNERABILITY(API6: Mass Assignment) - binds role/isAdmin from client
+    // FIX(API6): Use safe DTO to prevent mass assignment of role/isAdmin
     @PostMapping
-    public AppUser create(@Valid @RequestBody AppUser body) {
-        return users.save(body);
+    public AppUser create(@Valid @RequestBody CreateUserRequest request) {
+        AppUser user = AppUser.builder()
+                .username(request.getUsername())
+                .password(request.getPassword())
+                .email(request.getEmail())
+                .role("USER")  // Server-side default
+                .isAdmin(false)  // Server-side default
+                .build();
+        return users.save(user);
     }
 
     // VULNERABILITY(API9: Improper Inventory + API8 Injection style): naive 'search' that can be abused for enumeration
