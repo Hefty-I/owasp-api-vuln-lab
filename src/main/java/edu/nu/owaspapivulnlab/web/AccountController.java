@@ -31,11 +31,42 @@ public class AccountController {
         return a.getBalance();
     }
 
-    // VULNERABILITY(API4: Unrestricted Resource Consumption) - no rate limiting on transfer
-    // VULNERABILITY(API5/1): no authorization check on owner
+    // FIX(API9): Add input validation for transfer amounts
     @PostMapping("/{id}/transfer")
-    public ResponseEntity<?> transfer(@PathVariable Long id, @RequestParam Double amount) {
+    public ResponseEntity<?> transfer(@PathVariable Long id, @RequestParam Double amount, Authentication auth) {
+        // Input validation: reject negative, zero, null, or excessively large amounts
+        if (amount == null || amount <= 0) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "invalid_amount");
+            error.put("message", "Transfer amount must be positive");
+            return ResponseEntity.status(400).body(error);
+        }
+        
+        if (amount > 1000000.0) { // Max transfer limit
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "amount_too_large");
+            error.put("message", "Transfer amount exceeds maximum limit");
+            return ResponseEntity.status(400).body(error);
+        }
+        
         Account a = accounts.findById(id).orElseThrow(() -> new RuntimeException("Account not found"));
+        AppUser me = users.findByUsername(auth != null ? auth.getName() : "anonymous").orElse(null);
+        
+        // Authorization check
+        if (me == null || !a.getOwnerUserId().equals(me.getId())) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "forbidden: not your account");
+            return ResponseEntity.status(403).body(error);
+        }
+        
+        // Check sufficient balance
+        if (a.getBalance() < amount) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "insufficient_balance");
+            error.put("message", "Account does not have sufficient balance");
+            return ResponseEntity.status(400).body(error);
+        }
+        
         a.setBalance(a.getBalance() - amount);
         accounts.save(a);
         Map<String, Object> response = new HashMap<>();
