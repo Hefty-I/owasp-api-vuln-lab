@@ -25,6 +25,12 @@ public class SecurityConfig {
 
     @Value("${app.jwt.secret}")
     private String secret;
+    
+    @Value("${app.jwt.issuer}")
+    private String issuer;
+    
+    @Value("${app.jwt.audience}")
+    private String audience;
 
     // VULNERABILITY(API7 Security Misconfiguration): overly permissive CORS/CSRF and antMatchers order
     @Bean
@@ -42,14 +48,21 @@ public class SecurityConfig {
 
         http.headers(h -> h.frameOptions(f -> f.disable())); // allow H2 console
 
-        http.addFilterBefore(new JwtFilter(secret), org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter.class);
+        http.addFilterBefore(new JwtFilter(secret, issuer, audience), org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 
-    // Minimal JWT filter (VULNERABILITY: weak validation - no audience, issuer checks; long TTL)
+    // FIX(API8): Hardened JWT filter with issuer/audience validation
     static class JwtFilter extends OncePerRequestFilter {
         private final String secret;
-        JwtFilter(String secret) { this.secret = secret; }
+        private final String issuer;
+        private final String audience;
+        
+        JwtFilter(String secret, String issuer, String audience) { 
+            this.secret = secret; 
+            this.issuer = issuer;
+            this.audience = audience;
+        }
 
         @Override
         protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
@@ -58,7 +71,11 @@ public class SecurityConfig {
             if (auth != null && auth.startsWith("Bearer ")) {
                 String token = auth.substring(7);
                 try {
-                    Claims c = Jwts.parserBuilder().setSigningKey(secret.getBytes()).build()
+                    Claims c = Jwts.parserBuilder()
+                            .setSigningKey(secret.getBytes())
+                            .requireIssuer(issuer)
+                            .requireAudience(audience)
+                            .build()
                             .parseClaimsJws(token).getBody();
                     String user = c.getSubject();
                     String role = (String) c.get("role");
@@ -66,7 +83,9 @@ public class SecurityConfig {
                             role != null ? Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + role)) : Collections.emptyList());
                     SecurityContextHolder.getContext().setAuthentication(authn);
                 } catch (JwtException e) {
-                    // VULNERABILITY: swallow errors; continue as anonymous (API7)
+                    // FIX(API8): Strict validation - reject invalid tokens
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    return;
                 }
             }
             chain.doFilter(request, response);
