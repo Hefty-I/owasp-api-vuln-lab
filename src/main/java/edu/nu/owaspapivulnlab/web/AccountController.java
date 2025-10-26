@@ -11,10 +11,17 @@ import edu.nu.owaspapivulnlab.repo.AppUserRepository;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import io.github.bucket4j.Bucket;
+import io.github.bucket4j.Bandwidth;
+import io.github.bucket4j.Refill;
+import java.time.Duration;
+import java.util.concurrent.ConcurrentHashMap;
 
 @RestController
 @RequestMapping("/api/accounts")
 public class AccountController {
+    // FIX(API4): Simple in-memory rate limiter per user for transfers
+    private final Map<Long, Bucket> transferBuckets = new ConcurrentHashMap<>();
 
     private final AccountRepository accounts;
     private final AppUserRepository users;
@@ -34,8 +41,23 @@ public class AccountController {
     // VULNERABILITY(API4: Unrestricted Resource Consumption) - no rate limiting on transfer
     // VULNERABILITY(API5/1): no authorization check on owner
     @PostMapping("/{id}/transfer")
-    public ResponseEntity<?> transfer(@PathVariable Long id, @RequestParam Double amount) {
+    public ResponseEntity<?> transfer(@PathVariable Long id, @RequestParam Double amount, Authentication auth) {
         Account a = accounts.findById(id).orElseThrow(() -> new RuntimeException("Account not found"));
+        AppUser me = users.findByUsername(auth != null ? auth.getName() : "anonymous").orElse(null);
+        if (me == null || !a.getOwnerUserId().equals(me.getId())) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "forbidden: not your account");
+            return ResponseEntity.status(403).body(error);
+        }
+        // Rate limit: 5 transfers per minute per user
+        Bucket bucket = transferBuckets.computeIfAbsent(me.getId(), k -> Bucket.builder()
+                .addLimit(Bandwidth.classic(5, Refill.intervally(5, Duration.ofMinutes(1))))
+                .build());
+        if (!bucket.tryConsume(1)) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "rate limit exceeded: try again later");
+            return ResponseEntity.status(429).body(error);
+        }
         a.setBalance(a.getBalance() - amount);
         accounts.save(a);
         Map<String, Object> response = new HashMap<>();
