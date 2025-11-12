@@ -26,6 +26,12 @@ public class SecurityConfig {
     @Value("${app.jwt.secret}")
     private String secret;
 
+    // FIX(API2): Provide BCryptPasswordEncoder bean for secure password hashing
+    @Bean
+    public org.springframework.security.crypto.password.PasswordEncoder passwordEncoder() {
+        return new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
+    }
+
     // VULNERABILITY(API7 Security Misconfiguration): overly permissive CORS/CSRF and antMatchers order
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
